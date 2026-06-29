@@ -1,0 +1,16 @@
+[Unit]
+Description=Sit Monitor - Posture Detection Service
+After=network.target
+
+[Service]
+Type=simple
+User=james
+WorkingDirectory=/home/james/repos/sit-monitor
+ExecStart=/home/james/repos/sit-monitor/venv/bin/python3 /home/james/repos/sit-monitor/sit_monitor.py
+Restart=on-failure
+RestartSec=10
+Environment=DISPLAY=:0
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+
+[Install]
+WantedBy=default.target
