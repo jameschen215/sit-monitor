@@ -20,10 +20,7 @@ options = vision.PoseLandmarkerOptions(
 detector = vision.PoseLandmarker.create_from_options(options)
 
 # -- Set up Camera --
-# cap = cv.VideoCapture(0)
 cap = cv.VideoCapture("rtsp://admin:TUHXOF@192.168.0.109:554/h264/ch1/main/av_stream")
-cap.set(cv.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv.CAP_PROP_FRAME_HEIGHT, 480)
 
 # -- State --
 sitting_seconds = 0
@@ -48,6 +45,7 @@ while True:
         print("Error: cannot read frame")
         break
 
+    frame = cv.resize(frame, (640, 360))  # 16:9 比例
     rgb_frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
     results = detector.detect(mp_image)
@@ -66,9 +64,6 @@ while True:
     minutes = sitting_seconds // 60
     status = f"Sitting: {minutes}m {sitting_seconds % 60}s"
     color = (0, 255, 0) if person_present else (0, 0, 255)
-    # cv.putText(frame, status, (10, 30), cv.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-
-    # cv.imshow("Sit Monitor", frame)
 
     print(
         f"Person present: {person_present} | Sitting: {sitting_seconds // 60}m {sitting_seconds % 60}s"
@@ -78,18 +73,21 @@ while True:
     if sitting_seconds >= SITTING_LIMIT:
         subprocess.run(
             [
-                "notify-send",
-                "Sitting Alert",
-                "You've been sitting for 45 minutes. Time to stand up!",
+                "/home/james/repos/sit-monitor/venv/bin/edge-tts",
+                "--voice",
+                "zh-CN-shaanxi-XiaoniNeural",
+                "--text",
+                "你已经坐了45分钟了，请站起来活动一下！",
+                "--write-media",
+                "/tmp/sit_alert.mp3",
             ]
         )
-        subprocess.run(["paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga"])
-        sitting_seconds = 0  # reset after alert
+        subprocess.run(
+            ["notify-send", "久坐提醒", "你已经坐了45分钟了，请站起来活动一下！"]
+        )
+        subprocess.run(["mpg123", "-a", "pulse", "/tmp/sit_alert.mp3"])
 
-    # if cv.waitKey(1) & 0xFF == ord("q"):
-    #     break
+        sitting_seconds = 0
 
-    # time.sleep(CHECK_INTERVAL)
 
 cap.release()
-# cv.destroyAllWindows()
