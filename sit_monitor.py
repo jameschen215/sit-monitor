@@ -42,8 +42,8 @@ while True:
         continue
 
     last_check = now
-    ret, frame = cap.read()
 
+    ret, frame = cap.read()
     if not ret:
         print("Error: cannot read frame")
         break
