@@ -3,14 +3,16 @@ import sys
 
 
 def main():
-    cap = cv.VideoCapture(0)
+    cap = cv.VideoCapture(
+        "rtsp://admin:TUHXOF@192.168.0.109:554/h264/ch1/main/av_stream"
+    )
 
     if not cap.isOpened():
         print("Error: cannot open camera")
         sys.exit(1)
 
-    cap.set(cv.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv.CAP_PROP_FRAME_HEIGHT, 480)
+    # cap.set(cv.CAP_PROP_FRAME_WIDTH, 640)
+    # cap.set(cv.CAP_PROP_FRAME_HEIGHT, 480)
 
     print("Camera connected! Press 'q' to quit.")
 
@@ -21,6 +23,7 @@ def main():
             print("Error: cannot read frame")
             break
 
+        frame = cv.resize(frame, (640, 360))  # 16:9 比例
         cv.imshow("Action 4 Test", frame)
 
         if cv.waitKey(1) & 0xFF == ord("q"):

@@ -1,9 +1,9 @@
+import os
 import cv2 as cv
+import urllib.request
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
-import urllib.request
-import os
 
 # Download the pose landmarker model if not present
 MODEL_PATH = "pose_landmarker.task"
@@ -23,9 +23,7 @@ options = vision.PoseLandmarkerOptions(
 )
 detector = vision.PoseLandmarker.create_from_options(options)
 
-cap = cv.VideoCapture(0)
-cap.set(cv.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv.CAP_PROP_FRAME_HEIGHT, 480)
+cap = cv.VideoCapture("rtsp://admin:TUHXOF@192.168.0.109:554/h264/ch1/main/av_stream")
 
 print('Running pose detection... Press "q" to quit.')
 
@@ -36,6 +34,7 @@ while True:
         print("Error: cannot read frame")
         break
 
+    frame = cv.resize(frame, (640, 360))  # 16:9 比例
     # MediaPipe works with RGB, OpenCV uses BGR by default
     rgb_frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
