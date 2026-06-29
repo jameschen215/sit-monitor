@@ -42,8 +42,13 @@ while True:
 
     ret, frame = cap.read()
     if not ret:
-        print("Error: cannot read frame")
-        break
+        print("Error: cannot read frame, reconnecting...")
+        cap.release()
+        time.sleep(5)
+        cap = cv.VideoCapture(
+            "rtsp://admin:TUHXOF@192.168.0.109:554/h264/ch1/main/av_stream"
+        )
+        continue
 
     frame = cv.resize(frame, (640, 360))  # 16:9 比例
     rgb_frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
