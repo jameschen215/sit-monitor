@@ -4,7 +4,7 @@ LEFT_HIP, LEFT_KNEE, LEFT_ANKLE = 23, 25, 27
 RIGHT_HIP, RIGHT_KNEE, RIGHT_ANKLE = 24, 26, 28
 
 VISIBILITY_THRESHOLD = 0.5
-SITTING_KNEE_ANGLE_MAX = 140.0  # degrees; bent knee (sitting) vs straight leg (standing)
+SITTING_KNEE_ANGLE_MAX = 140.0  # degrees: bent knee = sitting, straight leg = standing
 
 
 def _angle(a, b, c) -> float:

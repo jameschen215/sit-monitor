@@ -71,7 +71,8 @@ class SitMonitor:
                     alerts.append(f"你已经坐了{minute}分钟了，需要休息一下！")
         else:
             self.standing_seconds += self.check_interval
-            if self.standing_seconds >= self.rest_threshold and not self.can_sit_now_notified:
+            rested_enough = self.standing_seconds >= self.rest_threshold
+            if rested_enough and not self.can_sit_now_notified:
                 alerts.append("你可以坐下了！")
                 self.can_sit_now_notified = True
 

@@ -1,5 +1,7 @@
 import time
 import subprocess
+from pathlib import Path
+
 import cv2 as cv
 import mediapipe as mp
 from mediapipe.tasks import python
@@ -15,6 +17,7 @@ SITTING_LIMIT = 2700  # 45 minutes in seconds
 REST_THRESHOLD = 300  # 5 minutes of accumulated standing satisfies a rest
 MODEL_PATH = "pose_landmarker.task"
 RTSP_URL = get_rtsp_url()
+EDGE_TTS_PATH = Path(__file__).resolve().parent / "venv" / "bin" / "edge-tts"
 
 # -- Setup MediaPipe --
 base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
@@ -30,7 +33,7 @@ cap = cv.VideoCapture(RTSP_URL)
 def send_alert(text):
     subprocess.run(
         [
-            "/home/james/repos/sit-monitor/venv/bin/edge-tts",
+            str(EDGE_TTS_PATH),
             "--voice",
             "zh-CN-shaanxi-XiaoniNeural",
             "--text",
@@ -91,7 +94,9 @@ while True:
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
     results = detector.detect(mp_image)
 
-    person_sitting = bool(results.pose_landmarks) and is_sitting(results.pose_landmarks[0])
+    person_sitting = bool(results.pose_landmarks) and is_sitting(
+        results.pose_landmarks[0]
+    )
 
     for alert_text in monitor.tick(person_sitting):
         send_alert(alert_text)
