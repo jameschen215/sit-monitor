@@ -1,11 +1,11 @@
 import cv2 as cv
 import sys
 
+from camera_config import get_rtsp_url
+
 
 def main():
-    cap = cv.VideoCapture(
-        "rtsp://admin:TUHXOF@192.168.0.109:554/h264/ch1/main/av_stream"
-    )
+    cap = cv.VideoCapture(get_rtsp_url())
 
     if not cap.isOpened():
         print("Error: cannot open camera")

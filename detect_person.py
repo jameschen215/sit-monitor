@@ -5,6 +5,8 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+from camera_config import get_rtsp_url
+
 # Download the pose landmarker model if not present
 MODEL_PATH = "pose_landmarker.task"
 
@@ -23,7 +25,7 @@ options = vision.PoseLandmarkerOptions(
 )
 detector = vision.PoseLandmarker.create_from_options(options)
 
-cap = cv.VideoCapture("rtsp://admin:TUHXOF@192.168.0.109:554/h264/ch1/main/av_stream")
+cap = cv.VideoCapture(get_rtsp_url())
 
 print('Running pose detection... Press "q" to quit.')
 

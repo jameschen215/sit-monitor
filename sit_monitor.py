@@ -1,4 +1,3 @@
-import os
 import time
 import subprocess
 import cv2 as cv
@@ -6,11 +5,14 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+from camera_config import get_rtsp_url
+
 # -- Configuration --
 CHECK_INTERVAL = 5  # seconds between each detection check
 SITTING_LIMIT = 2700  # 45 minutes in seconds
 AWAY_THRESHOLD = 300  # 5 minutes away resets the timer
 MODEL_PATH = "pose_landmarker.task"
+RTSP_URL = get_rtsp_url()
 
 # -- Setup MediaPipe --
 base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
@@ -20,7 +22,7 @@ options = vision.PoseLandmarkerOptions(
 detector = vision.PoseLandmarker.create_from_options(options)
 
 # -- Set up Camera --
-cap = cv.VideoCapture("rtsp://admin:TUHXOF@192.168.0.109:554/h264/ch1/main/av_stream")
+cap = cv.VideoCapture(RTSP_URL)
 
 # -- State --
 sitting_seconds = 0
@@ -33,21 +35,33 @@ last_check = 0
 while True:
     now = time.time()
 
-    # Only grab a frame every CHECK_INTERVAL seconds
+    # Keep draining the RTSP decoder's internal buffer so it doesn't build
+    # up a backlog while we're not reading; otherwise the next retrieve()
+    # after a multi-second gap returns a stale, buffered frame instead of
+    # the live one.
+    grabbed = cap.grab()
+    if not grabbed:
+        print("Error: cannot read frame, reconnecting...")
+        cap.release()
+        time.sleep(5)
+        cap = cv.VideoCapture(RTSP_URL)
+        last_check = 0
+        continue
+
+    # Only decode a frame every CHECK_INTERVAL seconds
     if now - last_check < CHECK_INTERVAL:
-        time.sleep(0.5)
+        time.sleep(0.1)
         continue
 
     last_check = now
 
-    ret, frame = cap.read()
+    ret, frame = cap.retrieve()
     if not ret:
         print("Error: cannot read frame, reconnecting...")
         cap.release()
         time.sleep(5)
-        cap = cv.VideoCapture(
-            "rtsp://admin:TUHXOF@192.168.0.109:554/h264/ch1/main/av_stream"
-        )
+        cap = cv.VideoCapture(RTSP_URL)
+        last_check = 0
         continue
 
     frame = cv.resize(frame, (640, 360))  # 16:9 比例
@@ -64,11 +78,6 @@ while True:
         away_seconds += CHECK_INTERVAL
         if away_seconds >= AWAY_THRESHOLD:
             sitting_seconds = 0  # reset if away long enough
-
-    # Display status
-    minutes = sitting_seconds // 60
-    status = f"Sitting: {minutes}m {sitting_seconds % 60}s"
-    color = (0, 255, 0) if person_present else (0, 0, 255)
 
     print(
         f"Person present: {person_present} | Sitting: {sitting_seconds // 60}m {sitting_seconds % 60}s"
