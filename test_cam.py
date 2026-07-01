@@ -11,9 +11,6 @@ def main():
         print("Error: cannot open camera")
         sys.exit(1)
 
-    # cap.set(cv.CAP_PROP_FRAME_WIDTH, 640)
-    # cap.set(cv.CAP_PROP_FRAME_HEIGHT, 480)
-
     print("Camera connected! Press 'q' to quit.")
 
     while True:
