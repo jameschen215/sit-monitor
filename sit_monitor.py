@@ -6,11 +6,12 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 from camera_config import get_rtsp_url
+from sit_state import SitMonitor
 
 # -- Configuration --
 CHECK_INTERVAL = 5  # seconds between each detection check
 SITTING_LIMIT = 2700  # 45 minutes in seconds
-AWAY_THRESHOLD = 300  # 5 minutes away resets the timer
+AWAY_THRESHOLD = 300  # 5 minutes minimum break before sitting counts again
 MODEL_PATH = "pose_landmarker.task"
 RTSP_URL = get_rtsp_url()
 
@@ -24,9 +25,29 @@ detector = vision.PoseLandmarker.create_from_options(options)
 # -- Set up Camera --
 cap = cv.VideoCapture(RTSP_URL)
 
+
+def send_alert(text):
+    subprocess.run(
+        [
+            "/home/james/repos/sit-monitor/venv/bin/edge-tts",
+            "--voice",
+            "zh-CN-shaanxi-XiaoniNeural",
+            "--text",
+            text,
+            "--write-media",
+            "/tmp/sit_alert.mp3",
+        ]
+    )
+    subprocess.run(["notify-send", "久坐提醒", text])
+    subprocess.run(["mpg123", "-a", "pulse", "/tmp/sit_alert.mp3"])
+
+
 # -- State --
-sitting_seconds = 0
-away_seconds = 0
+monitor = SitMonitor(
+    check_interval=CHECK_INTERVAL,
+    sitting_limit=SITTING_LIMIT,
+    away_threshold=AWAY_THRESHOLD,
+)
 
 print('Sit monitor started. Press "q" to quit.')
 
@@ -71,37 +92,14 @@ while True:
 
     person_present = bool(results.pose_landmarks)
 
-    if person_present:
-        sitting_seconds += CHECK_INTERVAL
-        away_seconds = 0
-    else:
-        away_seconds += CHECK_INTERVAL
-        if away_seconds >= AWAY_THRESHOLD:
-            sitting_seconds = 0  # reset if away long enough
+    for alert_text in monitor.tick(person_present):
+        send_alert(alert_text)
 
     print(
-        f"Person present: {person_present} | Sitting: {sitting_seconds // 60}m {sitting_seconds % 60}s"
+        f"State: {monitor.state} | Raw present: {person_present} | "
+        f"Sitting: {monitor.sitting_seconds // 60}m {monitor.sitting_seconds % 60}s | "
+        f"Away: {monitor.away_seconds // 60}m {monitor.away_seconds % 60}s"
     )
-
-    # Trigger alert
-    if sitting_seconds >= SITTING_LIMIT:
-        subprocess.run(
-            [
-                "/home/james/repos/sit-monitor/venv/bin/edge-tts",
-                "--voice",
-                "zh-CN-shaanxi-XiaoniNeural",
-                "--text",
-                "你已经坐了45分钟了，请站起来活动一下！",
-                "--write-media",
-                "/tmp/sit_alert.mp3",
-            ]
-        )
-        subprocess.run(
-            ["notify-send", "久坐提醒", "你已经坐了45分钟了，请站起来活动一下！"]
-        )
-        subprocess.run(["mpg123", "-a", "pulse", "/tmp/sit_alert.mp3"])
-
-        sitting_seconds = 0
 
 
 cap.release()
