@@ -12,7 +12,7 @@ from sit_state import SitMonitor
 # -- Configuration --
 CHECK_INTERVAL = 5  # seconds between each detection check
 SITTING_LIMIT = 2700  # 45 minutes in seconds
-AWAY_THRESHOLD = 300  # 5 minutes minimum break before sitting counts again
+REST_THRESHOLD = 300  # 5 minutes of accumulated standing satisfies a rest
 MODEL_PATH = "pose_landmarker.task"
 RTSP_URL = get_rtsp_url()
 
@@ -47,7 +47,7 @@ def send_alert(text):
 monitor = SitMonitor(
     check_interval=CHECK_INTERVAL,
     sitting_limit=SITTING_LIMIT,
-    away_threshold=AWAY_THRESHOLD,
+    rest_threshold=REST_THRESHOLD,
 )
 
 print('Sit monitor started. Press "q" to quit.')
@@ -97,10 +97,10 @@ while True:
         send_alert(alert_text)
 
     print(
-        f"State: {monitor.state} | Pose detected: {bool(results.pose_landmarks)} | "
+        f"Phase: {monitor.phase} | Pose detected: {bool(results.pose_landmarks)} | "
         f"Sitting posture: {person_sitting} | "
         f"Sitting: {monitor.sitting_seconds // 60}m {monitor.sitting_seconds % 60}s | "
-        f"Away: {monitor.away_seconds // 60}m {monitor.away_seconds % 60}s"
+        f"Standing: {monitor.standing_seconds // 60}m {monitor.standing_seconds % 60}s"
     )
 
 
