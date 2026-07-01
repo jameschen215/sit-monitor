@@ -6,6 +6,7 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 from camera_config import get_rtsp_url
+from pose_analysis import is_sitting
 from sit_state import SitMonitor
 
 # -- Configuration --
@@ -90,13 +91,14 @@ while True:
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
     results = detector.detect(mp_image)
 
-    person_present = bool(results.pose_landmarks)
+    person_sitting = bool(results.pose_landmarks) and is_sitting(results.pose_landmarks[0])
 
-    for alert_text in monitor.tick(person_present):
+    for alert_text in monitor.tick(person_sitting):
         send_alert(alert_text)
 
     print(
-        f"State: {monitor.state} | Raw present: {person_present} | "
+        f"State: {monitor.state} | Pose detected: {bool(results.pose_landmarks)} | "
+        f"Sitting posture: {person_sitting} | "
         f"Sitting: {monitor.sitting_seconds // 60}m {monitor.sitting_seconds % 60}s | "
         f"Away: {monitor.away_seconds // 60}m {monitor.away_seconds % 60}s"
     )
