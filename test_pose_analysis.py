@@ -49,6 +49,13 @@ def visible_shoulders():
     }
 
 
+def visible_hips():
+    return {
+        LEFT_HIP: Point(0.4, 0.5, 1.0),
+        RIGHT_HIP: Point(0.6, 0.5, 1.0),
+    }
+
+
 class KneeAngleTest(unittest.TestCase):
     def test_bent_knee_measures_near_90_degrees(self):
         landmarks = make_landmarks(bent_leg(LEFT_HIP, LEFT_KNEE, LEFT_ANKLE))
@@ -90,7 +97,7 @@ class IsSittingTest(unittest.TestCase):
     def test_falls_back_to_true_when_legs_not_visible_but_person_present(self):
         # e.g. a desk-mounted camera that sees a real person's upper body
         # but their legs are hidden under the desk.
-        landmarks = make_landmarks(visible_shoulders())
+        landmarks = make_landmarks({**visible_shoulders(), **visible_hips()})
         self.assertTrue(is_sitting(landmarks))
 
     def test_phantom_detection_with_no_visible_landmarks_is_not_sitting(self):
@@ -99,6 +106,16 @@ class IsSittingTest(unittest.TestCase):
         # This must NOT fall back to "assume sitting", or leaving the
         # camera's view entirely gets misread as sitting forever.
         landmarks = make_landmarks({})
+        self.assertFalse(is_sitting(landmarks))
+
+    def test_shoulder_only_phantom_on_empty_desk_is_not_sitting(self):
+        # An empty chair/desk can have something shoulder-height (a
+        # headrest, a monitor, clothing) clear the visibility threshold
+        # while no legs are ever detected. Shoulder visibility alone must
+        # not count as "person present", or is_sitting's "legs not
+        # visible -> assume sitting" fallback reads the empty desk as a
+        # person sitting there forever.
+        landmarks = make_landmarks(visible_shoulders())
         self.assertFalse(is_sitting(landmarks))
 
 

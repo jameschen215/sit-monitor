@@ -9,14 +9,28 @@ SITTING_KNEE_ANGLE_MAX = 140.0  # degrees: bent knee = sitting, straight leg = s
 
 
 def _person_present(landmarks, visibility_threshold=VISIBILITY_THRESHOLD) -> bool:
-    """Require at least one confidently-visible shoulder before trusting
-    that MediaPipe detected a real person, rather than a low-confidence
-    phantom detection (background clutter, furniture) that happens to
-    clear the pose detector's threshold."""
-    return (
+    """Require a confidently-visible shoulder AND hip before trusting that
+    MediaPipe detected a real person, rather than a low-confidence phantom
+    detection (background clutter, furniture) that happens to clear the
+    pose detector's threshold.
+
+    Shoulder alone isn't enough: an empty chair/desk can have something
+    shoulder-height (headrest, monitor, clothing) trip the threshold, and
+    since it has no legs either, is_sitting's "legs not visible -> assume
+    sitting" fallback would then read it as a person sitting there forever.
+    A real person's hip is anatomically tied to their shoulder in a way a
+    phantom blob won't coincidentally match, so requiring both is a cheap
+    way to rule out the empty-desk case without breaking the legitimate
+    "legs hidden under the desk" case, where hips are still visible."""
+    shoulder_visible = (
         landmarks[LEFT_SHOULDER].visibility >= visibility_threshold
         or landmarks[RIGHT_SHOULDER].visibility >= visibility_threshold
     )
+    hip_visible = (
+        landmarks[LEFT_HIP].visibility >= visibility_threshold
+        or landmarks[RIGHT_HIP].visibility >= visibility_threshold
+    )
+    return shoulder_visible and hip_visible
 
 
 def _angle(a, b, c) -> float:
