@@ -1,10 +1,22 @@
 import math
 
+LEFT_SHOULDER, RIGHT_SHOULDER = 11, 12
 LEFT_HIP, LEFT_KNEE, LEFT_ANKLE = 23, 25, 27
 RIGHT_HIP, RIGHT_KNEE, RIGHT_ANKLE = 24, 26, 28
 
 VISIBILITY_THRESHOLD = 0.5
 SITTING_KNEE_ANGLE_MAX = 140.0  # degrees: bent knee = sitting, straight leg = standing
+
+
+def _person_present(landmarks, visibility_threshold=VISIBILITY_THRESHOLD) -> bool:
+    """Require at least one confidently-visible shoulder before trusting
+    that MediaPipe detected a real person, rather than a low-confidence
+    phantom detection (background clutter, furniture) that happens to
+    clear the pose detector's threshold."""
+    return (
+        landmarks[LEFT_SHOULDER].visibility >= visibility_threshold
+        or landmarks[RIGHT_SHOULDER].visibility >= visibility_threshold
+    )
 
 
 def _angle(a, b, c) -> float:
@@ -50,10 +62,15 @@ def is_sitting(
 ) -> bool:
     """Classify sitting vs standing from one person's pose landmarks.
 
-    Falls back to True (presence-only, i.e. assume sitting) when neither
-    leg is visible enough to measure a knee angle, since a bent-knee
-    signal isn't available in every camera framing (e.g. a desk-mounted
-    camera that only sees the upper body)."""
+    Returns False outright if there's no confidently-visible person at
+    all (see _person_present) — a low-confidence phantom detection
+    shouldn't default to "sitting". Only once a real person is confirmed
+    present does it fall back to True (assume sitting) when neither leg
+    is visible enough to measure a knee angle, since a bent-knee signal
+    isn't available in every camera framing (e.g. a desk-mounted camera
+    that only sees the upper body)."""
+    if not _person_present(landmarks, visibility_threshold):
+        return False
     angle = estimate_knee_angle(landmarks, visibility_threshold)
     if angle is None:
         return True
