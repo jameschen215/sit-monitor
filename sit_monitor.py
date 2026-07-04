@@ -99,7 +99,7 @@ monitor = SitMonitor(
     rest_threshold=REST_THRESHOLD,
 )
 
-print('Sit monitor started. Press "q" to quit.')
+print("Sit monitor started.")
 
 last_check = 0
 last_tick_time = None
@@ -162,6 +162,3 @@ while True:
         f"Sitting: {monitor.sitting_seconds // 60}m {monitor.sitting_seconds % 60}s | "
         f"Standing: {monitor.standing_seconds // 60}m {monitor.standing_seconds % 60}s"
     )
-
-
-cap.release()
