@@ -42,7 +42,14 @@ def send_alert(text):
             "/tmp/sit_alert.mp3",
         ]
     )
-    subprocess.run(["notify-send", "久坐提醒", text])
+    escaped_text = text.replace("\\", "\\\\").replace('"', '\\"')
+    subprocess.run(
+        [
+            "osascript",
+            "-e",
+            f'display notification "{escaped_text}" with title "久坐提醒"',
+        ]
+    )
     subprocess.run(["mpg123", "-a", "pulse", "/tmp/sit_alert.mp3"])
 
 
