@@ -38,42 +38,47 @@ class SitMonitor:
             return WORKING
         return WARNING if self.effective_sitting else RESTING
 
-    def tick(self, person_sitting: bool) -> list[str]:
-        """Advance the state machine by one check_interval given a raw
-        sitting/standing reading. Returns any alert messages to announce."""
+    def tick(self, person_sitting: bool, elapsed: int | None = None) -> list[str]:
+        """Advance the state machine given a raw sitting/standing reading.
+        elapsed is the real wall-clock seconds since the previous tick, so
+        slow ticks (alert playback, RTSP reconnects) don't undercount time;
+        it defaults to check_interval for callers that tick on a fixed
+        cadence. Returns any alert messages to announce."""
+        if elapsed is None:
+            elapsed = self.check_interval
         sitting = self._debounce(person_sitting)
-        over_limit = self.sitting_seconds >= self.sitting_limit
         alerts = []
-
-        if not over_limit:
-            if sitting:
-                self.sitting_seconds += self.check_interval
-            # Standing while still under the limit: just pause. No rest
-            # tracking, no alerts, resumes from this value when they sit
-            # back down.
-            return alerts
 
         if sitting:
             if self.standing_seconds >= self.rest_threshold:
                 # Enough rest was accumulated (possibly across separate
                 # standing stints) before they sat back down: fresh start.
-                minutes_rested = self.standing_seconds // 60
-                alerts.append(f"很好！你已经休息了{minutes_rested}分钟了。")
+                # This applies under the limit too — a lunch break at
+                # minute 30 shouldn't leave the timer at 30 minutes.
+                alerts.append("欢迎大师兄归位！")
                 self.sitting_seconds = 0
                 self.standing_seconds = 0
                 self.can_sit_now_notified = False
                 self.last_warning_minute = -1
             else:
-                self.sitting_seconds += self.check_interval
-                minute = self.sitting_seconds // 60
-                if minute > self.last_warning_minute:
-                    self.last_warning_minute = minute
-                    alerts.append(f"你已经坐了{minute}分钟了，需要休息一下！")
+                self.sitting_seconds += elapsed
+                if self.sitting_seconds >= self.sitting_limit:
+                    minute = self.sitting_seconds // 60
+                    if minute > self.last_warning_minute:
+                        self.last_warning_minute = minute
+                        alerts.append(f"你已经坐了{minute}分钟了，需要休息一下！")
         else:
-            self.standing_seconds += self.check_interval
-            rested_enough = self.standing_seconds >= self.rest_threshold
-            if rested_enough and not self.can_sit_now_notified:
-                alerts.append("你可以坐下了！")
+            self.standing_seconds += elapsed
+            # Only announce "rest complete" during an over-limit rest cycle;
+            # someone who left the room before any warning shouldn't have
+            # this spoken to an empty chair.
+            if (
+                self.sitting_seconds >= self.sitting_limit
+                and self.standing_seconds >= self.rest_threshold
+                and not self.can_sit_now_notified
+            ):
+                minutes_rested = self.standing_seconds // 60
+                alerts.append(f"你已经休息了{minutes_rested}分钟了，可以工作啦！")
                 self.can_sit_now_notified = True
 
         return alerts

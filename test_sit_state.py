@@ -25,21 +25,37 @@ class WorkingPhasePauseTest(unittest.TestCase):
         self.assertEqual(m.sitting_seconds, 100)
         self.assertEqual(m.phase, WORKING)
 
-    def test_standing_before_limit_pauses_without_alerts_or_rest_tracking(self):
+    def test_standing_before_limit_accumulates_rest_quietly(self):
         m = make_monitor()
         feed(m, [True] * 20)  # 100s sitting
         fired = feed(m, [False] * 30)  # 150s standing, well under the 45min limit
-        self.assertEqual(fired, [])
+        self.assertEqual(fired, [])  # no announcements under the limit
         self.assertEqual(m.sitting_seconds, 100)  # untouched
-        self.assertEqual(m.standing_seconds, 0)  # rest timer untouched entirely
+        self.assertEqual(m.standing_seconds, 150)  # rest credited even under limit
         self.assertEqual(m.phase, WORKING)
 
-    def test_resumes_sitting_timer_from_paused_value(self):
+    def test_short_stand_resumes_sitting_timer(self):
         m = make_monitor()
         feed(m, [True] * 20)  # 100s
-        feed(m, [False] * 10)  # paused
+        feed(m, [False] * 10)  # 50s standing, short of rest_threshold
         feed(m, [True] * 4)  # resumes: +20s
         self.assertEqual(m.sitting_seconds, 120)
+
+    def test_long_break_under_limit_resets_on_return(self):
+        m = make_monitor()
+        feed(m, [True] * 20)  # 100s sitting
+        fired = feed(m, [False] * (300 // 5))  # a full 5-minute break
+        self.assertEqual(fired, [])  # no "可以工作啦" spoken to an empty room
+        fired = feed(m, [True])
+        self.assertEqual(fired, [(0, ["欢迎大师兄归位！"])])
+        self.assertEqual(m.sitting_seconds, 0)
+        self.assertEqual(m.standing_seconds, 0)
+        self.assertEqual(m.phase, WORKING)
+
+    def test_elapsed_overrides_check_interval(self):
+        m = make_monitor()
+        m.tick(True, elapsed=17)
+        self.assertEqual(m.sitting_seconds, 17)
 
 
 class WarningPhaseTest(unittest.TestCase):
@@ -67,17 +83,17 @@ class RestingPhaseTest(unittest.TestCase):
         self.assertEqual(m.standing_seconds, 240)
         self.assertEqual(m.sitting_seconds, 2700)  # frozen while standing
 
-    def test_you_can_sit_now_fires_once_at_threshold(self):
+    def test_rest_complete_fires_once_at_threshold(self):
         m = self._over_limit_monitor()
         fired = feed(m, [False] * (600 // 5))  # 10 minutes standing, well past 5 min
         self.assertEqual(len(fired), 1)
-        self.assertEqual(fired[0][1], ["你可以坐下了！"])
+        self.assertEqual(fired[0][1], ["你已经休息了5分钟了，可以工作啦！"])
 
     def test_sitting_back_down_after_enough_rest_resets_everything(self):
         m = self._over_limit_monitor()
         feed(m, [False] * (420 // 5))  # 7 minutes standing
         fired = feed(m, [True])
-        self.assertEqual(fired, [(0, ["很好！你已经休息了7分钟了。"])])
+        self.assertEqual(fired, [(0, ["欢迎大师兄归位！"])])
         self.assertEqual(m.sitting_seconds, 0)
         self.assertEqual(m.standing_seconds, 0)
         self.assertEqual(m.phase, WORKING)
@@ -95,9 +111,9 @@ class RestingPhaseTest(unittest.TestCase):
         feed(m, [False] * (120 // 5))  # 2 min standing
         feed(m, [True] * 6)  # interrupt: sit for 30s (back to warning)
         fired = feed(m, [False] * (180 // 5))  # stand again: +3 min -> total 5 min
-        self.assertEqual(fired, [(35, ["你可以坐下了！"])])
+        self.assertEqual(fired, [(35, ["你已经休息了5分钟了，可以工作啦！"])])
         fired = feed(m, [True])  # now sit back down: enough total rest -> reset
-        self.assertEqual(fired, [(0, ["很好！你已经休息了5分钟了。"])])
+        self.assertEqual(fired, [(0, ["欢迎大师兄归位！"])])
         self.assertEqual(m.sitting_seconds, 0)
         self.assertEqual(m.standing_seconds, 0)
 
