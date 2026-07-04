@@ -1,3 +1,4 @@
+import sys
 import time
 import subprocess
 from pathlib import Path
@@ -42,15 +43,19 @@ def send_alert(text):
             "/tmp/sit_alert.mp3",
         ]
     )
-    escaped_text = text.replace("\\", "\\\\").replace('"', '\\"')
-    subprocess.run(
-        [
-            "osascript",
-            "-e",
-            f'display notification "{escaped_text}" with title "久坐提醒"',
-        ]
-    )
-    subprocess.run(["mpg123", "-a", "pulse", "/tmp/sit_alert.mp3"])
+    if sys.platform == "darwin":
+        escaped_text = text.replace("\\", "\\\\").replace('"', '\\"')
+        subprocess.run(
+            [
+                "osascript",
+                "-e",
+                f'display notification "{escaped_text}" with title "久坐提醒"',
+            ]
+        )
+        subprocess.run(["afplay", "/tmp/sit_alert.mp3"])
+    else:
+        subprocess.run(["notify-send", "久坐提醒", text])
+        subprocess.run(["mpg123", "-a", "pulse", "/tmp/sit_alert.mp3"])
 
 
 # -- State --
