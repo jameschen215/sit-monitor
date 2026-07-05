@@ -151,3 +151,57 @@ def classify_posture(
     if knee_angle is None:
         return UNKNOWN
     return SITTING if knee_angle <= SITTING_KNEE_ANGLE_MAX else STANDING
+
+
+# Hip-baseline fallback tuning (units: fraction of torso length). Live
+# measurements with a seated person: hip y jitter < ±0.04 torso, while
+# standing raises the hip by ~0.6-0.8 torso.
+HIP_BASELINE_ALPHA = 0.1  # EMA weight per confirmed-sitting sample
+HIP_SITTING_BAND = 0.35  # within this of the baseline = still sitting
+HIP_STANDING_RISE = 0.6  # hip this far above the baseline = standing
+
+
+class PostureClassifier:
+    """classify_posture plus a learned sitting hip-height baseline.
+
+    The leg landmarks are the flaky part of the pose (occluded by the
+    desk, backlit): they can go garbage for minutes at a time, which
+    leaves the geometric classifier stuck on UNKNOWN. The shoulders and
+    hips, by contrast, are near-perfectly stable while seated (measured
+    live: visibility 1.0, jitter < ±0.01). Since the camera and chair
+    are fixed, the hip's frame height while sitting is essentially a
+    constant — so learn it during leg-confirmed sitting, and use it to
+    resolve UNKNOWN frames: hip at the baseline means sitting, hip well
+    above it means standing. Without this, an UNKNOWN stretch just holds
+    the previous posture and can stay wrong indefinitely."""
+
+    def __init__(self):
+        self.sitting_hip_y = None
+        self.torso_length = None
+
+    def classify(self, landmarks, visibility_threshold=VISIBILITY_THRESHOLD) -> str:
+        posture = classify_posture(landmarks, visibility_threshold)
+        shoulder = _visible_mean(
+            landmarks, (LEFT_SHOULDER, RIGHT_SHOULDER), visibility_threshold
+        )
+        hip = _visible_mean(landmarks, (LEFT_HIP, RIGHT_HIP), visibility_threshold)
+        if shoulder is None or hip is None:
+            return posture
+
+        if posture == SITTING:
+            # Only leg-confirmed sitting trains the baseline; frames the
+            # baseline itself resolved must not feed back into it.
+            torso = math.hypot(hip[0] - shoulder[0], hip[1] - shoulder[1])
+            if self.sitting_hip_y is None:
+                self.sitting_hip_y = hip[1]
+                self.torso_length = torso
+            else:
+                self.sitting_hip_y += HIP_BASELINE_ALPHA * (hip[1] - self.sitting_hip_y)
+                self.torso_length += HIP_BASELINE_ALPHA * (torso - self.torso_length)
+        elif posture == UNKNOWN and self.sitting_hip_y is not None:
+            rise = self.sitting_hip_y - hip[1]  # y grows downward
+            if abs(rise) <= HIP_SITTING_BAND * self.torso_length:
+                return SITTING
+            if rise >= HIP_STANDING_RISE * self.torso_length:
+                return STANDING
+        return posture

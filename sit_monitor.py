@@ -15,7 +15,7 @@ from pose_analysis import (
     ABSENT,
     SITTING,
     UNKNOWN,
-    classify_posture,
+    PostureClassifier,
     estimate_knee_angle,
     estimate_thigh_angle,
 )
@@ -103,6 +103,7 @@ threading.Thread(target=_alert_worker, daemon=True).start()
 
 
 # -- State --
+classifier = PostureClassifier()
 monitor = SitMonitor(
     check_interval=CHECK_INTERVAL,
     sitting_limit=SITTING_LIMIT,
@@ -154,7 +155,7 @@ while True:
     thigh_angle = knee_angle = None
     if results.pose_landmarks:
         landmarks = results.pose_landmarks[0]
-        posture = classify_posture(landmarks)
+        posture = classifier.classify(landmarks)
         thigh_angle = estimate_thigh_angle(landmarks)
         knee_angle = estimate_knee_angle(landmarks)
     else:

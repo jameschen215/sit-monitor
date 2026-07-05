@@ -6,6 +6,7 @@ from pose_analysis import (
     SITTING,
     STANDING,
     UNKNOWN,
+    PostureClassifier,
     classify_posture,
     estimate_knee_angle,
     estimate_thigh_angle,
@@ -219,6 +220,66 @@ class ClassifyPostureTest(unittest.TestCase):
             }
         )
         self.assertEqual(classify_posture(landmarks), ABSENT)
+
+
+class PostureClassifierBaselineTest(unittest.TestCase):
+    """The stateful classifier learns the sitting hip height from
+    leg-confirmed frames and uses it to resolve UNKNOWN ones (flaky leg
+    landmarks are the norm with a backlit desk scene)."""
+
+    def _seated_frame(self):
+        return make_landmarks(
+            {**visible_shoulders(), **sitting_leg(LEFT_HIP, LEFT_KNEE, LEFT_ANKLE)}
+        )
+
+    def _legs_hidden_frame(self, hip_y):
+        return make_landmarks(
+            {
+                LEFT_SHOULDER: Point(0.45, hip_y - 0.3, 1.0),
+                RIGHT_SHOULDER: Point(0.55, hip_y - 0.3, 1.0),
+                LEFT_HIP: Point(0.45, hip_y, 1.0),
+                RIGHT_HIP: Point(0.55, hip_y, 1.0),
+            }
+        )
+
+    def test_unknown_at_sitting_hip_height_resolves_to_sitting(self):
+        c = PostureClassifier()
+        self.assertEqual(c.classify(self._seated_frame()), SITTING)
+        # Legs vanish but the hip stays at the learned height (0.5):
+        self.assertEqual(c.classify(self._legs_hidden_frame(0.5)), SITTING)
+
+    def test_unknown_with_hip_well_above_baseline_is_standing(self):
+        c = PostureClassifier()
+        c.classify(self._seated_frame())  # baseline: hip 0.5, torso ~0.3
+        # Standing raises the hip by ~0.6-0.8 torso lengths:
+        self.assertEqual(c.classify(self._legs_hidden_frame(0.28)), STANDING)
+
+    def test_unknown_without_baseline_stays_unknown(self):
+        c = PostureClassifier()
+        self.assertEqual(c.classify(self._legs_hidden_frame(0.5)), UNKNOWN)
+
+    def test_garbage_legs_at_sitting_height_resolve_to_sitting(self):
+        # Seen live: knee hallucinated above the hip while actually
+        # sitting. With a baseline, this must read sitting, not hold.
+        c = PostureClassifier()
+        c.classify(self._seated_frame())
+        garbage = make_landmarks(
+            {
+                **visible_shoulders(),
+                **visible_hips(),
+                LEFT_KNEE: Point(0.6, 0.3, 1.0),  # "knee" at elbow height
+            }
+        )
+        self.assertEqual(c.classify(garbage), SITTING)
+
+    def test_baseline_not_trained_by_fallback_frames(self):
+        # Only leg-confirmed sitting updates the baseline; frames the
+        # baseline itself resolved must not drag it around.
+        c = PostureClassifier()
+        c.classify(self._seated_frame())
+        baseline = c.sitting_hip_y
+        c.classify(self._legs_hidden_frame(0.55))  # resolved by fallback
+        self.assertEqual(c.sitting_hip_y, baseline)
 
 
 if __name__ == "__main__":
