@@ -57,6 +57,23 @@ class WorkingPhasePauseTest(unittest.TestCase):
         m.tick(True, elapsed=17)
         self.assertEqual(m.sitting_seconds, 17)
 
+    def test_elapsed_is_capped_per_tick(self):
+        # A slow tick (long RTSP reconnect) must not dump minutes of
+        # credit onto whichever posture the next frame shows.
+        m = make_monitor()
+        m.tick(True, elapsed=200)
+        self.assertEqual(m.sitting_seconds, 60)
+
+    def test_suspend_gap_resets_quietly(self):
+        # Machine suspended mid-session: the person was away far longer
+        # than a rest, so resume with fresh timers and no announcement.
+        m = make_monitor()
+        feed(m, [True] * 20)  # 100s sitting before the suspend
+        alerts = m.tick(True, elapsed=7200)  # 2h gap on resume
+        self.assertEqual(alerts, [])
+        self.assertEqual(m.sitting_seconds, 5)  # just this tick's credit
+        self.assertEqual(m.standing_seconds, 0)
+
 
 class WarningPhaseTest(unittest.TestCase):
     def test_crossing_limit_fires_nag_and_keeps_ticking(self):

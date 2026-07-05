@@ -6,6 +6,7 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 from camera_config import get_rtsp_url
+from pose_analysis import ABSENT, classify_posture, estimate_knee_angle, estimate_thigh_angle
 
 # Download the pose landmarker model if not present
 MODEL_PATH = "pose_landmarker.task"
@@ -44,8 +45,15 @@ while True:
     results = detector.detect(mp_image)
 
     if results.pose_landmarks:
-        status = "Person detected"
-        color = (0, 255, 0)
+        landmarks = results.pose_landmarks[0]
+        posture = classify_posture(landmarks)
+        thigh = estimate_thigh_angle(landmarks)
+        knee = estimate_knee_angle(landmarks)
+        status = (
+            f"{posture} | thigh: {thigh:.0f}" if thigh is not None else f"{posture} | thigh: -"
+        )
+        status += f" | knee: {knee:.0f}" if knee is not None else " | knee: -"
+        color = (0, 0, 255) if posture == ABSENT else (0, 255, 0)
     else:
         status = "No person detected"
         color = (0, 0, 255)

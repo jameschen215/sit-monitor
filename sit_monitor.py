@@ -11,7 +11,14 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 from camera_config import get_rtsp_url
-from pose_analysis import is_sitting
+from pose_analysis import (
+    ABSENT,
+    SITTING,
+    UNKNOWN,
+    classify_posture,
+    estimate_knee_angle,
+    estimate_thigh_angle,
+)
 from sit_state import SitMonitor
 
 # -- Configuration --
@@ -22,14 +29,17 @@ MODEL_PATH = "pose_landmarker.task"
 RTSP_URL = get_rtsp_url()
 EDGE_TTS_PATH = Path(__file__).resolve().parent / "venv" / "bin" / "edge-tts"
 ALERT_MP3 = Path("/tmp/sit_alert.mp3")
-MAX_TICK_ELAPSED = 60  # cap per-tick credit so a suspend/long reconnect
-# doesn't dump a huge block of time onto whichever posture the next
-# frame happens to show
 
 # -- Setup MediaPipe --
 base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
 options = vision.PoseLandmarkerOptions(
-    base_options=base_options, output_segmentation_masks=False
+    base_options=base_options,
+    output_segmentation_masks=False,
+    # Above the 0.5 defaults: at 0.5 MediaPipe hallucinated poses on the
+    # empty room (shoulder/hip visibility cleared threshold too), which
+    # read as someone sitting there for hours.
+    min_pose_detection_confidence=0.65,
+    min_pose_presence_confidence=0.65,
 )
 detector = vision.PoseLandmarker.create_from_options(options)
 
@@ -141,24 +151,40 @@ while True:
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
     results = detector.detect(mp_image)
 
-    person_sitting = bool(results.pose_landmarks) and is_sitting(
-        results.pose_landmarks[0]
-    )
+    thigh_angle = knee_angle = None
+    if results.pose_landmarks:
+        landmarks = results.pose_landmarks[0]
+        posture = classify_posture(landmarks)
+        thigh_angle = estimate_thigh_angle(landmarks)
+        knee_angle = estimate_knee_angle(landmarks)
+    else:
+        posture = ABSENT
+
+    if posture == UNKNOWN:
+        # Person present but legs hidden (standing behind the desk, half
+        # out of frame): hold the current posture rather than guess.
+        person_sitting = monitor.effective_sitting
+    else:
+        person_sitting = posture == SITTING
 
     # Credit real wall-clock time to the state machine so slow ticks
-    # (detection latency, reconnect sleeps) don't undercount.
+    # (detection latency, reconnect sleeps) don't undercount; tick()
+    # caps runaway gaps and treats suspend-length ones as a fresh start.
     if last_tick_time is None:
         elapsed = CHECK_INTERVAL
     else:
-        elapsed = min(int(round(now - last_tick_time)), MAX_TICK_ELAPSED)
+        elapsed = int(round(now - last_tick_time))
     last_tick_time = now
 
     for alert_text in monitor.tick(person_sitting, elapsed):
         alert_queue.put(alert_text)
 
+    def fmt_angle(angle):
+        return f"{angle:.0f}°" if angle is not None else "-"
+
     print(
-        f"Phase: {monitor.phase} | Pose detected: {bool(results.pose_landmarks)} | "
-        f"Sitting posture: {person_sitting} | "
+        f"Phase: {monitor.phase} | Posture: {posture} | "
+        f"Thigh: {fmt_angle(thigh_angle)} | Knee: {fmt_angle(knee_angle)} | "
         f"Sitting: {monitor.sitting_seconds // 60}m {monitor.sitting_seconds % 60}s | "
         f"Standing: {monitor.standing_seconds // 60}m {monitor.standing_seconds % 60}s"
     )

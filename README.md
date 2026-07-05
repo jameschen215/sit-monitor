@@ -10,16 +10,18 @@ desktop notifications. Runs on Linux (notify-send + mpg123) and macOS
 - `sit_monitor.py` — main loop: grabs a frame every 5 seconds, classifies
   sitting/standing, feeds the result to the state machine, and plays any
   alerts on a background thread.
-- `pose_analysis.py` — sitting vs standing from pose landmarks (knee
-  angle), with phantom-detection guards (requires a visible shoulder AND
-  hip before trusting a detection).
+- `pose_analysis.py` — classifies pose landmarks as sitting / standing /
+  unknown / absent. Thigh orientation (hip→knee vs vertical) is the
+  primary signal, knee angle breaks ties, and phantom-detection guards
+  require a visible shoulder AND hip arranged like a real torso.
 - `sit_state.py` — the timer state machine: 45 min sitting limit,
-  5 min accumulated standing counts as a rest and resets the timer.
+  5 min accumulated standing counts as a rest and resets the timer; a
+  suspend-length gap between ticks resets it quietly.
 - `camera_config.py` — reads `RTSP_URL` from `.env`.
 
-The camera should see your full body in side profile so knee angle is
-measurable; with legs out of frame it falls back to presence-only
-detection.
+The camera should see your full body in side profile so thigh and knee
+geometry are measurable; when a person is present but their legs are
+hidden the posture reading is held rather than guessed.
 
 ## Setup
 

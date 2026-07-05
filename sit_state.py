@@ -11,6 +11,11 @@ class SitMonitor:
     sitting_limit: int = 2700  # 45 minutes; past this, standing up counts as rest
     rest_threshold: int = 300  # 5 minutes of accumulated standing satisfies a rest
     confirm_checks: int = 2  # consecutive disagreeing reads before flipping posture
+    gap_reset_seconds: int = 300  # a tick gap this long means the machine was
+    # suspended — the person was away far longer than a rest, so start fresh
+    max_tick_elapsed: int = 60  # cap per-tick credit so a long RTSP reconnect
+    # doesn't dump a huge block of time onto whichever posture the next
+    # frame happens to show
 
     sitting_seconds: int = 0
     standing_seconds: int = 0
@@ -32,6 +37,13 @@ class SitMonitor:
                 self.posture_streak = 0
         return self.effective_sitting
 
+    def reset(self):
+        """Fresh cycle: no sitting time, no rest credit, alerts re-armed."""
+        self.sitting_seconds = 0
+        self.standing_seconds = 0
+        self.can_sit_now_notified = False
+        self.last_warning_minute = -1
+
     @property
     def phase(self) -> str:
         if self.sitting_seconds < self.sitting_limit:
@@ -46,6 +58,14 @@ class SitMonitor:
         cadence. Returns any alert messages to announce."""
         if elapsed is None:
             elapsed = self.check_interval
+        if elapsed >= self.gap_reset_seconds:
+            # The process was frozen (machine suspend) — the person was
+            # away from the desk far longer than a rest. Quiet reset, per
+            # the same rule as a long break: no announcement to a
+            # possibly-empty room.
+            self.reset()
+            elapsed = self.check_interval
+        elapsed = min(elapsed, self.max_tick_elapsed)
         sitting = self._debounce(person_sitting)
         alerts = []
 
@@ -56,10 +76,7 @@ class SitMonitor:
                 # This applies under the limit too — a lunch break at
                 # minute 30 shouldn't leave the timer at 30 minutes.
                 alerts.append("欢迎大师兄归位！")
-                self.sitting_seconds = 0
-                self.standing_seconds = 0
-                self.can_sit_now_notified = False
-                self.last_warning_minute = -1
+                self.reset()
             else:
                 self.sitting_seconds += elapsed
                 if self.sitting_seconds >= self.sitting_limit:

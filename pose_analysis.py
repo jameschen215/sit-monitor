@@ -6,31 +6,59 @@ RIGHT_HIP, RIGHT_KNEE, RIGHT_ANKLE = 24, 26, 28
 
 VISIBILITY_THRESHOLD = 0.5
 SITTING_KNEE_ANGLE_MAX = 140.0  # degrees: bent knee = sitting, straight leg = standing
+SITTING_THIGH_ANGLE_MIN = 50.0  # thigh this far off vertical = sitting
+SITTING_THIGH_ANGLE_MAX = 120.0  # past this the knee is above the hip —
+# implausible for sitting, so treat the reading as noise
+STANDING_THIGH_ANGLE_MAX = 35.0  # thigh this close to vertical = standing
+MIN_TORSO_DROP = 0.02  # shoulders must sit above hips by this much (normalized)
+MIN_TORSO_LENGTH = 0.08  # smaller than this is landmark noise, not a torso
+
+# Classification results. UNKNOWN means a person is present but their legs
+# are too hidden to judge posture — the caller should hold its previous
+# reading rather than guess, because guessing "sitting" reads someone
+# standing behind the desk as sitting, and guessing "standing" hands out
+# rest credit while they sit.
+SITTING = "sitting"
+STANDING = "standing"
+UNKNOWN = "unknown"
+ABSENT = "absent"
+
+
+def _visible_mean(landmarks, indices, visibility_threshold):
+    """Mean (x, y) of the confidently-visible landmarks among indices,
+    or None if none qualify."""
+    points = [
+        landmarks[i] for i in indices if landmarks[i].visibility >= visibility_threshold
+    ]
+    if not points:
+        return None
+    return (
+        sum(p.x for p in points) / len(points),
+        sum(p.y for p in points) / len(points),
+    )
 
 
 def _person_present(landmarks, visibility_threshold=VISIBILITY_THRESHOLD) -> bool:
-    """Require a confidently-visible shoulder AND hip before trusting that
-    MediaPipe detected a real person, rather than a low-confidence phantom
-    detection (background clutter, furniture) that happens to clear the
-    pose detector's threshold.
+    """Require a confidently-visible shoulder AND hip, arranged like an
+    actual torso, before trusting that MediaPipe detected a real person.
 
     Shoulder alone isn't enough: an empty chair/desk can have something
     shoulder-height (headrest, monitor, clothing) trip the threshold, and
-    since it has no legs either, is_sitting's "legs not visible -> assume
-    sitting" fallback would then read it as a person sitting there forever.
-    A real person's hip is anatomically tied to their shoulder in a way a
-    phantom blob won't coincidentally match, so requiring both is a cheap
-    way to rule out the empty-desk case without breaking the legitimate
-    "legs hidden under the desk" case, where hips are still visible."""
-    shoulder_visible = (
-        landmarks[LEFT_SHOULDER].visibility >= visibility_threshold
-        or landmarks[RIGHT_SHOULDER].visibility >= visibility_threshold
+    a phantom blob's "hip" can too. Beyond visibility, a real torso has
+    shoulders above hips with meaningful distance between them; phantom
+    detections on background clutter tend to collapse into a degenerate
+    cluster, so cheap geometry rules them out without breaking the
+    legitimate "legs hidden under the desk" case."""
+    shoulder = _visible_mean(
+        landmarks, (LEFT_SHOULDER, RIGHT_SHOULDER), visibility_threshold
     )
-    hip_visible = (
-        landmarks[LEFT_HIP].visibility >= visibility_threshold
-        or landmarks[RIGHT_HIP].visibility >= visibility_threshold
-    )
-    return shoulder_visible and hip_visible
+    hip = _visible_mean(landmarks, (LEFT_HIP, RIGHT_HIP), visibility_threshold)
+    if shoulder is None or hip is None:
+        return False
+    # y grows downward: hips below shoulders means a positive drop.
+    if hip[1] - shoulder[1] < MIN_TORSO_DROP:
+        return False
+    return math.hypot(hip[0] - shoulder[0], hip[1] - shoulder[1]) >= MIN_TORSO_LENGTH
 
 
 def _angle(a, b, c) -> float:
@@ -46,46 +74,80 @@ def _angle(a, b, c) -> float:
     return math.degrees(math.acos(cos_angle))
 
 
-def estimate_knee_angle(landmarks, visibility_threshold=VISIBILITY_THRESHOLD):
-    """Return the hip-knee-ankle angle for whichever leg is more visible,
-    or None if neither leg is visible enough to trust (e.g. hidden under
-    a desk)."""
-
-    def leg_visibility(hip_idx, knee_idx, ankle_idx):
-        return min(
-            landmarks[hip_idx].visibility,
-            landmarks[knee_idx].visibility,
-            landmarks[ankle_idx].visibility,
-        )
-
-    left_vis = leg_visibility(LEFT_HIP, LEFT_KNEE, LEFT_ANKLE)
-    right_vis = leg_visibility(RIGHT_HIP, RIGHT_KNEE, RIGHT_ANKLE)
-
+def _pick_side(landmarks, left_indices, right_indices, visibility_threshold):
+    """Return the landmark tuple for whichever side's chain is more
+    visible, or None if neither side clears the threshold throughout."""
+    left_vis = min(landmarks[i].visibility for i in left_indices)
+    right_vis = min(landmarks[i].visibility for i in right_indices)
     if left_vis < visibility_threshold and right_vis < visibility_threshold:
         return None
-
-    if left_vis >= right_vis:
-        return _angle(landmarks[LEFT_HIP], landmarks[LEFT_KNEE], landmarks[LEFT_ANKLE])
-    return _angle(landmarks[RIGHT_HIP], landmarks[RIGHT_KNEE], landmarks[RIGHT_ANKLE])
+    indices = left_indices if left_vis >= right_vis else right_indices
+    return tuple(landmarks[i] for i in indices)
 
 
-def is_sitting(
-    landmarks,
-    angle_threshold=SITTING_KNEE_ANGLE_MAX,
-    visibility_threshold=VISIBILITY_THRESHOLD,
-) -> bool:
-    """Classify sitting vs standing from one person's pose landmarks.
+def estimate_knee_angle(landmarks, visibility_threshold=VISIBILITY_THRESHOLD):
+    """Return the hip-knee-ankle angle for whichever leg is more visible,
+    or None if neither full leg is visible enough to trust (e.g. ankle
+    hidden under a desk)."""
+    leg = _pick_side(
+        landmarks,
+        (LEFT_HIP, LEFT_KNEE, LEFT_ANKLE),
+        (RIGHT_HIP, RIGHT_KNEE, RIGHT_ANKLE),
+        visibility_threshold,
+    )
+    if leg is None:
+        return None
+    return _angle(*leg)
 
-    Returns False outright if there's no confidently-visible person at
-    all (see _person_present) — a low-confidence phantom detection
-    shouldn't default to "sitting". Only once a real person is confirmed
-    present does it fall back to True (assume sitting) when neither leg
-    is visible enough to measure a knee angle, since a bent-knee signal
-    isn't available in every camera framing (e.g. a desk-mounted camera
-    that only sees the upper body)."""
+
+def estimate_thigh_angle(landmarks, visibility_threshold=VISIBILITY_THRESHOLD):
+    """Angle of the hip->knee vector from vertical, in degrees, for
+    whichever thigh is more visible; None if neither is visible enough.
+
+    0 = thigh pointing straight down (standing), ~90 = thigh horizontal
+    (sitting). Needs only hip and knee, so it still works when the ankle
+    is hidden behind a desk leg or chair base — the situation where the
+    full knee angle is unavailable."""
+    thigh = _pick_side(
+        landmarks,
+        (LEFT_HIP, LEFT_KNEE),
+        (RIGHT_HIP, RIGHT_KNEE),
+        visibility_threshold,
+    )
+    if thigh is None:
+        return None
+    hip, knee = thigh
+    dx = knee.x - hip.x
+    dy = knee.y - hip.y  # y grows downward; positive = knee below hip
+    if dx == 0 and dy == 0:
+        return None
+    return math.degrees(math.atan2(abs(dx), dy))
+
+
+def classify_posture(
+    landmarks, visibility_threshold=VISIBILITY_THRESHOLD
+) -> str:
+    """Classify one person's pose landmarks as SITTING, STANDING,
+    UNKNOWN, or ABSENT.
+
+    Thigh orientation is the primary signal: sitting puts the thigh near
+    horizontal and standing puts it near vertical, and it stays
+    measurable with just hip + knee. The knee angle breaks ties in the
+    ambiguous band between the two thresholds (e.g. mid-stride while
+    walking). With no leg information at all the posture is UNKNOWN, not
+    assumed — see the constant docs above."""
     if not _person_present(landmarks, visibility_threshold):
-        return False
-    angle = estimate_knee_angle(landmarks, visibility_threshold)
-    if angle is None:
-        return True
-    return angle <= angle_threshold
+        return ABSENT
+    thigh_angle = estimate_thigh_angle(landmarks, visibility_threshold)
+    if thigh_angle is None:
+        return UNKNOWN
+    if thigh_angle > SITTING_THIGH_ANGLE_MAX:
+        return UNKNOWN
+    if thigh_angle >= SITTING_THIGH_ANGLE_MIN:
+        return SITTING
+    if thigh_angle <= STANDING_THIGH_ANGLE_MAX:
+        return STANDING
+    knee_angle = estimate_knee_angle(landmarks, visibility_threshold)
+    if knee_angle is None:
+        return UNKNOWN
+    return SITTING if knee_angle <= SITTING_KNEE_ANGLE_MAX else STANDING
